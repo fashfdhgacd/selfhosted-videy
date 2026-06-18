@@ -4,10 +4,12 @@ import { saveVideoFile, generateThumbnail, getVideoDuration } from '@/lib/ffmpeg
 import { getCurrentUser } from '@/lib/auth'
 import { videoUploadSchema } from '@/lib/validators'
 import { createLog } from '@/lib/logger'
-import { z } from 'zod'
 import crypto from 'crypto'
 
-// Support API key auth too
+function hashApiKey(key: string): string {
+  return crypto.createHash('sha256').update(key).digest('hex')
+}
+
 export async function POST(request: NextRequest) {
   try {
     let userId: string | null = null
@@ -18,12 +20,11 @@ export async function POST(request: NextRequest) {
       userId = user.id
     } else {
       // Try API Key
-      const apiKey = request.headers.get('x-api-key') || request.headers.get('authorization')?.replace('Bearer ', '')
-      if (apiKey) {
-        const keyRecord = await prisma.apiKey.findFirst({ where: { keyHash: hashApiKey(apiKey) } })
+      const apiKeyHeader = request.headers.get('x-api-key') || request.headers.get('authorization')?.replace('Bearer ', '')
+      if (apiKeyHeader) {
+        const keyRecord = await prisma.apiKey.findFirst({ where: { keyHash: hashApiKey(apiKeyHeader) } })
         if (keyRecord) {
           userId = keyRecord.userId
-          // update last used
           await prisma.apiKey.update({ where: { id: keyRecord.id }, data: { lastUsedAt: new Date() } })
         }
       }
@@ -35,36 +36,31 @@ export async function POST(request: NextRequest) {
     const file = formData.get('video') as File | null
     if (!file) return NextResponse.json({ error: 'No video file provided' }, { status: 400 })
 
-    // Validation
     if (!file.type.startsWith('video/')) return NextResponse.json({ error: 'Only video files allowed' }, { status: 415 })
     const maxSize = parseInt(process.env.MAX_VIDEO_SIZE_MB || '500') * 1024 * 1024
     if (file.size > maxSize) return NextResponse.json({ error: `File too large (max ${process.env.MAX_VIDEO_SIZE_MB}MB)` }, { status: 413 })
 
-    const title = formData.get('title') as string || file.name.replace(/\.[^/.]+$/, "")
+    const title = (formData.get('title') as string) || file.name.replace(/\.[^/.]+$/, "")
     const description = formData.get('description') as string || null
     const folderId = formData.get('folderId') as string || null
     const tagsStr = formData.get('tags') as string || ''
 
-    // Save file
-    const videoId = crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36)
+    const videoId = crypto.randomUUID()
     const saved = await saveVideoFile(file, videoId)
 
-    // Process with FFmpeg
     const [thumbnailPath, duration] = await Promise.all([
       generateThumbnail(saved.path, videoId).catch(() => null),
       getVideoDuration(saved.path)
     ])
 
-    // Handle tags
     const tagNames = tagsStr.split(',').map(t => t.trim()).filter(Boolean)
-    const tagConnections = []
+    const tagConnections: { id: string }[] = []
     for (const name of tagNames) {
       let tag = await prisma.tag.findUnique({ where: { name } })
       if (!tag) tag = await prisma.tag.create({ data: { name } })
       tagConnections.push({ id: tag.id })
     }
 
-    // Create video record
     const video = await prisma.video.create({
       data: {
         id: videoId,
@@ -93,8 +89,4 @@ export async function POST(request: NextRequest) {
     console.error('Upload error:', error)
     return NextResponse.json({ error: error.message || 'Upload failed' }, { status: 500 })
   }
-}
-
-function hashApiKey(key: string): string {
-  return require('crypto').createHash('sha256').update(key).digest('hex')
 }

@@ -2,14 +2,13 @@
 
 import { useState, useEffect } from 'react'
 import VideoCard from '@/components/VideoCard'
-import VideoPlayer from '@/components/VideoPlayer'
-import { Upload, FolderPlus, Key, BarChart3, Search } from 'lucide-react'
+import { Upload, FolderPlus, Key, BarChart3, Search, X } from 'lucide-react'
 import toast from 'react-hot-toast'
 
 interface Video { id: string; title: string; filename: string; thumbnail?: string; duration?: number; viewsCount: number; createdAt: string; folder?: { name: string } }
 interface Folder { id: string; name: string }
 
- export default function Dashboard() {
+export default function Dashboard() {
   const [videos, setVideos] = useState<Video[]>([])
   const [folders, setFolders] = useState<Folder[]>([])
   const [selectedFolder, setSelectedFolder] = useState<string>('')
@@ -18,6 +17,7 @@ interface Folder { id: string; name: string }
   const [uploadingFiles, setUploadingFiles] = useState<any[]>([])
   const [apiKeys, setApiKeys] = useState<any[]>([])
   const [activeTab, setActiveTab] = useState<'videos' | 'upload' | 'folders' | 'apikeys'>('videos')
+  const [newApiKey, setNewApiKey] = useState<{key: string, name: string} | null>(null)
 
   const filteredVideos = videos.filter(v => 
     (!selectedFolder || v.folder?.name === selectedFolder) &&
@@ -37,7 +37,6 @@ interface Folder { id: string; name: string }
     if (kRes.ok) setApiKeys(await kRes.json())
   }
 
-  // Upload with progress using XHR
   async function handleFileUpload(files: FileList | null) {
     if (!files || files.length === 0) return
     setShowUpload(true)
@@ -68,7 +67,7 @@ interface Folder { id: string; name: string }
       xhr.onload = () => {
         if (xhr.status === 200) {
           setUploadingFiles(prev => prev.map(u => u.id === upload.id ? { ...u, status: 'success', progress: 100 } : u))
-          fetchData() // refresh list
+          fetchData()
           toast.success(`Uploaded ${upload.file.name}`)
         } else {
           setUploadingFiles(prev => prev.map(u => u.id === upload.id ? { ...u, status: 'error' } : u))
@@ -98,8 +97,14 @@ interface Folder { id: string; name: string }
     const name = prompt('API Key name (e.g. "CLI Tool")') || 'Default Key'
     const res = await fetch('/api/keys', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }) })
     if (res.ok) {
-      toast.success('API Key generated (copy from list)')
+      const data = await res.json()
+      if (data.key) {
+        setNewApiKey({ key: data.key, name: data.name })
+        toast.success('API Key created! Copy it now.')
+      }
       fetchData()
+    } else {
+      toast.error('Failed to generate key')
     }
   }
 
@@ -154,7 +159,7 @@ interface Folder { id: string; name: string }
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
               {filteredVideos.map(video => (
-                <VideoCard key={video.id} video={video} onDelete={deleteVideo} onEdit={(v) => alert('Edit coming soon - use API or extend UI')} />
+                <VideoCard key={video.id} video={video} onDelete={deleteVideo} onEdit={(v) => alert('Edit metadata coming soon - extend UI or use Prisma directly')} />
               ))}
             </div>
           )}
@@ -197,7 +202,7 @@ interface Folder { id: string; name: string }
         </div>
       )}
 
-      {/* Folders & API Keys simplified tabs */}
+      {/* Folders & API Keys */}
       {activeTab === 'folders' && (
         <div className="max-w-xl">
           <button onClick={createFolder} className="mb-6 px-5 py-2 bg-slate-800 rounded-2xl flex items-center gap-2"><FolderPlus size={18}/> Create New Folder</button>
@@ -208,7 +213,7 @@ interface Folder { id: string; name: string }
       {activeTab === 'apikeys' && (
         <div className="max-w-2xl">
           <button onClick={generateApiKey} className="mb-6 px-5 py-2.5 bg-primary-500 rounded-2xl flex items-center gap-2 text-sm"><Key size={18} /> Generate New API Key</button>
-          <div className="text-xs text-slate-400 mb-3">Use X-API-Key header for API uploads. Keep secret!</div>
+          <div className="text-xs text-slate-400 mb-3">Use X-API-Key: sk_xxx header for /api/upload. Copy & store safely!</div>
           {apiKeys.length === 0 ? <p className="text-slate-500">No API keys yet. Generate one above.</p> : apiKeys.map((k, i) => (
             <div key={i} className="bg-slate-900 border border-slate-700 p-4 rounded-2xl mb-3 font-mono text-sm flex justify-between items-center">
               <div>
@@ -218,6 +223,25 @@ interface Folder { id: string; name: string }
               <button onClick={async () => { await fetch(`/api/keys/${k.id}`, {method:'DELETE'}); fetchData() }} className="text-red-400 text-xs">Revoke</button>
             </div>
           ))}
+        </div>
+      )}
+
+      {/* New API Key Modal */}
+      {newApiKey && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-[100] p-6" onClick={() => setNewApiKey(null)}>
+          <div className="bg-slate-900 border border-slate-700 rounded-3xl p-8 max-w-lg w-full modal" onClick={e => e.stopPropagation()}>
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-xl font-semibold">Your New API Key</h3>
+              <button onClick={() => setNewApiKey(null)}><X size={20} /></button>
+            </div>
+            <p className="text-sm text-amber-400 mb-4">⚠️ Copy this key now. It will never be shown again for security reasons.</p>
+            <div className="bg-slate-950 p-4 rounded-2xl font-mono text-sm break-all border border-slate-700 mb-4">{newApiKey.key}</div>
+            <div className="flex gap-3">
+              <button onClick={() => { navigator.clipboard.writeText(newApiKey.key); toast.success('Copied to clipboard!') }} className="flex-1 py-3 bg-primary-500 rounded-2xl font-medium">Copy Key</button>
+              <button onClick={() => setNewApiKey(null)} className="flex-1 py-3 border border-slate-700 rounded-2xl">Done</button>
+            </div>
+            <p className="text-[10px] text-slate-500 mt-4 text-center">Name: {newApiKey.name} • Use in Header: X-API-Key</p>
+          </div>
         </div>
       )}
     </div>
