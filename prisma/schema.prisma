@@ -1,0 +1,102 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = "file:./dev.db"
+}
+
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  passwordHash  String
+  role          String    @default("USER") // USER | ADMIN
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  videos        Video[]
+  folders       Folder[]
+  apiKeys       ApiKey[]
+  views         View[]
+  logs          Log[]
+  passwordResets PasswordReset[]
+}
+
+model Video {
+  id               String    @id @default(cuid())
+  title            String
+  description      String?
+  filename         String    // stored filename e.g. video-uuid.mp4
+  originalFilename String
+  size             Int       // bytes
+  duration         Float?    // seconds
+  mimeType         String
+  thumbnail        String?   // path to thumbnail jpg
+  folderId         String?
+  userId           String
+  isPublic         Boolean   @default(true)
+  viewsCount       Int       @default(0)
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  folder           Folder?   @relation(fields: [folderId], references: [id], onDelete: SetNull)
+  tags             Tag[]     @relation("VideoTags")
+  views            View[]
+}
+
+model Folder {
+  id        String   @id @default(cuid())
+  name      String
+  userId    String
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  videos    Video[]
+}
+
+model Tag {
+  id     String  @id @default(cuid())
+  name   String  @unique
+  videos Video[] @relation("VideoTags")
+}
+
+model View {
+  id              String   @id @default(cuid())
+  videoId         String
+  userId          String?
+  ip              String?
+  userAgent       String?
+  watchedDuration Float?   // seconds watched
+  createdAt       DateTime @default(now())
+  video           Video    @relation(fields: [videoId], references: [id], onDelete: Cascade)
+  user            User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+}
+
+model ApiKey {
+  id        String   @id @default(cuid())
+  userId    String
+  keyHash     String   @unique
+  name        String
+  lastUsedAt  DateTime?
+  createdAt   DateTime @default(now())
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Log {
+  id        String   @id @default(cuid())
+  level     String   // INFO, WARN, ERROR
+  message   String
+  metadata  String?  // JSON string
+  userId    String?
+  videoId   String?
+  createdAt DateTime @default(now())
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+}
+
+model PasswordReset {
+  id        String   @id @default(cuid())
+  userId    String
+  token     String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
